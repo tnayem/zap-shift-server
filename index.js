@@ -36,16 +36,33 @@ async function run() {
       const result = await parcelsCollection.find().toArray()
       res.send(result)
     })
+    // get parcels using email
+    app.get('/parcels', async (req, res) => {
+      const userEmail = req.query.email
+      const query = userEmail ? { created_by: userEmail } : {};
+      const options = {
+        sort: { createdAt: -1 } // default newest first
+      }
+      const result = await parcelsCollection.find(query, options).toArray()
+      res.send(result)
+    })
     // Post Parcels 
-    app.post('/parcels', async(req,res)=>{
+    app.post('/parcels', async (req, res) => {
       try {
-        const postParcel = req.body; 
-        const result = await parcelsCollection.insertOne(postParcel) 
+        const postParcel = req.body;
+        const result = await parcelsCollection.insertOne(postParcel)
         res.send(result)
       } catch (error) {
         res.send(error)
       }
     })
+    // Delete parcels api 
+    app.delete('/parcels/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await parcelsCollection.deleteOne(query);
+      res.send(result)
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
