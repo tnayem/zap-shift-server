@@ -1,6 +1,12 @@
 const express = require('express')
 const cors = require('cors');
 const dotenv = require('dotenv');
+const admin = require("firebase-admin");
+const serviceAccount = require("./zap-shift-firebase-sdk.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 dotenv.config();
 
@@ -12,7 +18,7 @@ app.use(express.json());
 const port = process.env.PORT || 3000;
 
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.etjzxzd.mongodb.net/?appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -30,15 +36,59 @@ async function run() {
     await client.connect();
     // Create Database and Client 
     const db = client.db("zap_shift")
+    const usersCollection = db.collection("users")
     const parcelsCollection = db.collection("parcels")
-    // Get Parcels
-    app.get('/parcels', async (req, res) => {
-      const result = await parcelsCollection.find().toArray()
-      res.send(result)
+
+    // custom middleware 
+    const verifyFbToken = async (req, res, next) => {
+      try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).send({ message: "unauthorize access" })
+        }
+        const token = authHeader.split(" ")[1]
+        if (!token) {
+          return res.status(401).send({ message: "unauthorize access" })
+        }
+        const decodedUser = await admin.auth().verifyIdToken(token)
+        req.decodedUser = decodedUser
+        next()
+      } catch (error) {
+        console.error("Token verification failed:", error.message);
+        return res.status(403).send({ message: "Forbidden: Invalid token" });
+      }
+    }
+    // Post Users 
+    app.post('/users', async (req, res) => {
+      const email = req.body.email
+      const lastLogin = req.body.last_login;
+      // Bd time formate 
+      const bdTime = new Date().toLocaleString("en-US", {
+        timeZone: "Asia/Dhaka"
+      });
+      const existingUser = await usersCollection.findOne({ email })
+      if (existingUser) {
+        const userLastLogin = await usersCollection.updateOne({ email }, { $set: { last_login: bdTime } })
+        res.send(userLastLogin)
+        // return res.status(400).send({ message: "User already exists!" });
+      }
+      else {
+        const result = await usersCollection.insertOne(req.body)
+        res.send(result)
+      }
     })
+    // Get Parcels
+    // app.get('/parcels', async (req, res) => {
+    //   const result = await parcelsCollection.find().toArray()
+    //   res.send(result)
+    // })
     // get parcels using email
-    app.get('/parcels', async (req, res) => {
+    app.get('/parcels', verifyFbToken, async (req, res) => {
       const userEmail = req.query.email
+      if (req.decodedUser.email !== userEmail) {
+        return res.status(403).send({ message: "Forbidden: Email mismatch" });
+      }
+      // console.log(req.headers.Authorization);
       const query = userEmail ? { created_by: userEmail } : {};
       const options = {
         sort: { createdAt: -1 } // default newest first
